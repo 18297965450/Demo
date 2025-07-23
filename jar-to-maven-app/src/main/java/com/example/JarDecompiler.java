@@ -2,6 +2,7 @@ package com.example;
 
 import org.benf.cfr.reader.api.CfrDriver;
 import org.benf.cfr.reader.api.OutputSinkFactory;
+import org.codehaus.plexus.util.FileUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -12,15 +13,16 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
-import java.util.stream.Collectors;
 
 public class JarDecompiler {
 
     private final String outputBaseDir;
+    private final String jarFilePath;
     private final Set<String> decompiledFiles;
 
-    public JarDecompiler(String outputBaseDir) {
+    public JarDecompiler(String outputBaseDir, String jarFilePath) {
         this.outputBaseDir = outputBaseDir;
+        this.jarFilePath = jarFilePath;
         this.decompiledFiles = new HashSet<>();
     }
 
@@ -34,6 +36,9 @@ public class JarDecompiler {
             // 创建输出目录
             String projectName = jarFile.getName().replace(".jar", "");
             Path outputDir = Paths.get(outputBaseDir, projectName);
+            if (Files.exists(outputDir)){
+                FileUtils.deleteDirectory(outputDir.toFile());
+            }
             Files.createDirectories(outputDir);
             
             // 创建Maven项目结构
@@ -43,7 +48,7 @@ public class JarDecompiler {
             decompileJarContent(jarFile, outputDir);
             
             // 解析JAR依赖并更新pom.xml
-            extractDependencies(jarFile, outputDir);
+            extractDependencies(outputDir);
             
         } catch (IOException e) {
             throw new RuntimeException("Failed to decompile JAR: " + jarFilePath, e);
@@ -77,12 +82,20 @@ public class JarDecompiler {
             Enumeration<JarEntry> entries = jar.entries();
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
-                if (entry.getName().endsWith(".class") && !entry.getName().contains("$")) {
+
+                if (entry.getName().contains("META-INF")
+                        || entry.getName().contains("org/springframework/")){
+                    continue;
+                }
+
+                if (entry.getName().endsWith(".class")) {
                     // 反编译类文件
                     decompileClass(jar, entry, outputSinkFactory, options);
                 } else if (!entry.isDirectory() && !entry.getName().endsWith(".class")) {
                     // 复制资源文件
-                    copyResource(jar, entry, outputDir);
+                    if (entry.getName().contains("BOOT-INF/classes")){
+                        copyResource(jar, entry, outputDir);
+                    }
                 }
             }
         }
@@ -140,15 +153,16 @@ public class JarDecompiler {
                     .withOutputSink(outputSinkFactory)
                     .build();
             
-            driver.analyse(Collections.singletonList(entry.getName()));
+            driver.analyse(Collections.singletonList(jarFilePath));
         } catch (Exception e) {
-            System.err.println("Failed to decompile: " + entry.getName());
+            System.err.println("Failed to decompile: " + jar.getName());
             e.printStackTrace();
         }
     }
 
     private void copyResource(JarFile jar, JarEntry entry, Path outputDir) throws IOException {
-        Path resourcePath = outputDir.resolve("src/main/resources").resolve(entry.getName());
+        Path resourcePath = outputDir.resolve("src/main/resources")
+                .resolve(entry.getName().replace("BOOT-INF/classes/", ""));
         Files.createDirectories(resourcePath.getParent());
         
         try (InputStream is = jar.getInputStream(entry)) {
@@ -178,8 +192,8 @@ public class JarDecompiler {
         return "Unknown";
     }
 
-    private void extractDependencies(File jarFile, Path outputDir) {
-        // TODO: 实现依赖提取和pom.xml生成逻辑
-        // 这部分逻辑将在MavenProjectGenerator类中实现
+    private void extractDependencies(Path outputDir) {
+        MavenProjectGenerator mavenProjectGenerator = new MavenProjectGenerator();
+        mavenProjectGenerator.generateProject(outputDir,jarFilePath);
     }
 }

@@ -1,7 +1,9 @@
 package com.example;
 
+import cn.hutool.core.bean.BeanUtil;
 import org.apache.maven.model.*;
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
+import org.codehaus.plexus.util.xml.Xpp3Dom;
 import org.objectweb.asm.*;
 import org.objectweb.asm.Type;
 
@@ -14,30 +16,32 @@ import java.util.jar.Manifest;
 
 public class MavenProjectGenerator {
     private static final String DEFAULT_GROUP_ID = "com.decompiled";
+    private static final String DEFAULT_ARTIFACT_ID = "com.artifactId";
     private static final String DEFAULT_VERSION = "1.0-SNAPSHOT";
 
-    public void generateProject(Path projectPath, String jarPath, String artifactId) throws IOException {
-        // 创建并配置 Maven Model
-        Model model = createBasicModel(artifactId);
-        
-        // 添加项目属性
-        addProjectProperties(model);
-        
-        // 分析并添加依赖
-        analyzeDependencies(model, jarPath);
-        
-        // 添加构建插件
-        addBuildPlugins(model);
-        
-        // 写入 pom.xml
-        writePomXml(model, projectPath);
+    public void generateProject(Path projectPath, String jarPath) {
+        try {
+            // 创建并配置 Maven Model
+            Model model = createBasicModel();
+
+            // 添加项目属性
+            addProjectProperties(model);
+
+            // 分析并添加依赖
+            analyzeDependencies(model, jarPath);
+
+            // 写入 pom.xml
+            writePomXml(model, projectPath);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
-    private Model createBasicModel(String artifactId) {
+    private Model createBasicModel() {
         Model model = new Model();
         model.setModelVersion("4.0.0");
         model.setGroupId(DEFAULT_GROUP_ID);
-        model.setArtifactId(artifactId);
+        model.setArtifactId(DEFAULT_ARTIFACT_ID);
         model.setVersion(DEFAULT_VERSION);
         model.setPackaging("jar");
         return model;
@@ -64,17 +68,15 @@ public class MavenProjectGenerator {
                 if (isPomFile(entry.getName())) {
                     foundPom = true;
                     Model originalPom = readPomFromJar(jarFile, entry);
-                    if (originalPom != null && originalPom.getDependencies() != null) {
-                        dependencies.addAll(originalPom.getDependencies());
-                        // 如果找到了pom.xml，也复制其他有用的配置
-                        copyUsefulPomConfiguration(originalPom, model);
+                    if (originalPom != null) {
+                        BeanUtil.copyProperties(originalPom, model);
                     }
                     break;
                 }
             }
             
-            // 2. 如果没有找到pom.xml或pom.xml中没有依赖，则尝试其他方法
-            if (!foundPom || dependencies.isEmpty()) {
+            // 2. 如果没有找到pom.xml，则尝试其他方法
+            if (!foundPom) {
                 // 从 MANIFEST.MF 提取依赖信息
                 Manifest manifest = jarFile.getManifest();
                 if (manifest != null) {
@@ -87,7 +89,7 @@ public class MavenProjectGenerator {
                         }
                     }
                 }
-                
+
                 // 分析所有类文件中的依赖
                 entries = jarFile.entries();
                 while (entries.hasMoreElements()) {
@@ -96,17 +98,17 @@ public class MavenProjectGenerator {
                         analyzeClassFile(jarFile, entry, importedClasses);
                     }
                 }
-                
+
                 // 根据分析到的类推断依赖
                 inferDependenciesFromImports(dependencies, importedClasses);
-                
+
                 // 添加一些常用的运行时依赖
                 addCommonDependencies(dependencies);
+
+                // 将收集到的依赖添加到模型中
+                model.setDependencies(new ArrayList<>(dependencies));
             }
         }
-        
-        // 将收集到的依赖添加到模型中
-        model.setDependencies(new ArrayList<>(dependencies));
     }
     
     private void analyzeClassFile(JarFile jarFile, JarEntry entry, Map<String, Set<String>> importedClasses) throws IOException {
@@ -333,44 +335,6 @@ public class MavenProjectGenerator {
         } catch (Exception e) {
             System.err.println("Failed to read pom.xml from jar: " + e.getMessage());
             return null;
-        }
-    }
-
-    private void copyUsefulPomConfiguration(Model source, Model target) {
-        // 复制有用的属性，但不覆盖已设置的值
-        if (target.getGroupId() == null && source.getGroupId() != null) {
-            target.setGroupId(source.getGroupId());
-        }
-        if (target.getVersion() == null && source.getVersion() != null) {
-            target.setVersion(source.getVersion());
-        }
-        
-        // 复制属性
-        if (source.getProperties() != null) {
-            if (target.getProperties() == null) {
-                target.setProperties(new Properties());
-            }
-            target.getProperties().putAll(source.getProperties());
-        }
-        
-        // 复制仓库配置
-        if (source.getRepositories() != null) {
-            if (target.getRepositories() == null) {
-                target.setRepositories(new ArrayList<>());
-            }
-            target.getRepositories().addAll(source.getRepositories());
-        }
-        
-        // 复制插件管理配置
-        if (source.getBuild() != null && source.getBuild().getPluginManagement() != null) {
-            if (target.getBuild() == null) {
-                target.setBuild(new Build());
-            }
-            if (target.getBuild().getPluginManagement() == null) {
-                target.getBuild().setPluginManagement(new PluginManagement());
-            }
-            target.getBuild().getPluginManagement().getPlugins()
-                .addAll(source.getBuild().getPluginManagement().getPlugins());
         }
     }
 

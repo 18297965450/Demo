@@ -1,15 +1,16 @@
-import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
+package com.example;
 
-class JarDecompilerTest {
+
+import org.junit.Test;
+
+
+public class JarDecompilerTest {
 
     @Test
-    void testDecompileJar() {
-        JarDecompiler decompiler = new JarDecompiler();
-        String jarFilePath = "path/to/test.jar"; // Replace with an actual test JAR file path
-        boolean result = decompiler.decompileJar(jarFilePath);
+    public void testDecompileJar() {
+        String jarFilePath = "D:\\文档库\\Demo\\lib\\uds-api-1.0.0.jar";
+        JarDecompiler decompiler = new JarDecompiler("D:\\文档库\\Demo",jarFilePath);
+        decompiler.decompileJar(jarFilePath);
         
-        assertTrue(result, "The JAR file should be decompiled successfully.");
-        // Additional assertions can be added here to verify the output of the decompilation
     }
 }
